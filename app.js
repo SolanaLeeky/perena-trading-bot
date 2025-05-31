@@ -500,31 +500,29 @@ async function runSmartBalanceManagement(connection, payer, poolAddress, sleep) 
                 successfulSwaps++;
                 lastSwapPair = { from: highestBalanceToken.name, to: randomTarget.name };
                 console.log(`📊 Stats: ${successfulSwaps} successful, ${failedSwaps} failed swaps`);
+                
+                // Wait 2 minutes and check rewards after each successful swap
+                console.log(`⏳ Waiting 2 minutes before checking Perena rewards...`);
+                await sleep(120000); // 2 minutes = 120,000 ms
+                
+                // Fetch and display updated rewards data
+                const updatedRewardsData = await fetchPerenaRewards(payer.publicKey.toBase58());
+                displayRewardsData(updatedRewardsData, "Updated Perena Rewards Data");
+                
+                // Wait 5 hours before next swap
+                console.log(`⏳ Waiting ${CONFIG.TRADING.ROUND_DELAY_MS / 1000 / 60 / 60} hours before next swap...`);
+                await sleep(CONFIG.TRADING.ROUND_DELAY_MS);
             } else {
                 failedSwaps++;
+                
+                // Wait before next operation for failed swaps
+                console.log(`⏳ Waiting ${CONFIG.TRADING.OPERATION_DELAY_MS}ms before next operation...`);
+                await sleep(CONFIG.TRADING.OPERATION_DELAY_MS);
             }
-            
-            // Wait before next operation
-            console.log(`⏳ Waiting ${CONFIG.TRADING.OPERATION_DELAY_MS}ms before next operation...`);
-            await sleep(CONFIG.TRADING.OPERATION_DELAY_MS);
             
         } catch (error) {
             console.error(`❌ Error in round ${round}:`, error.message);
             failedSwaps++;
-        }
-        
-        // Long delay between rounds (only for first few rounds)
-        if (round < 2) {
-            console.log(`⏳ Waiting ${CONFIG.TRADING.ROUND_DELAY_MS / 1000 / 60 / 60} hours before next round...`);
-            await sleep(CONFIG.TRADING.ROUND_DELAY_MS);
-            
-            // After the first round, wait 2 minutes and check rewards again
-            console.log(`⏳ Waiting 2 minutes before checking Perena rewards...`);
-            await sleep(120000); // 2 minutes = 120,000 ms
-            
-            // Fetch and display updated rewards data
-            const updatedRewardsData = await fetchPerenaRewards(payer.publicKey.toBase58());
-            displayRewardsData(updatedRewardsData, "Updated Perena Rewards Data");
         }
     }
     

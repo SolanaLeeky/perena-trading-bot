@@ -28,7 +28,7 @@ A sophisticated automated trading bot for the Perena protocol on Solana, designe
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/your-username/perena-trading-bot.git
+git clone https://github.com/SolanaLeeky/perena-trading-bot.git
 cd perena-trading-bot
 ```
 

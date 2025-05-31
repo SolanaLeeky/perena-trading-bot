@@ -7,7 +7,7 @@ Thank you for your interest in contributing to the Perena Trading Bot! We welcom
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
-   git clone https://github.com/your-username/perena-trading-bot.git
+   git clone https://github.com/SolanaLeeky/perena-trading-bot.git
    cd perena-trading-bot
    ```
 3. **Install dependencies**:
