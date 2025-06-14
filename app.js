@@ -596,46 +596,79 @@ async function runWalletTrading(payer, connection, walletIndex) {
  * @returns {Promise<boolean>} Success status
  */
 async function executeSwap(connection, payer, poolAddress, sourceToken, targetToken, swapAmount, walletIndex = null) {
-    try {
-        console.log(`\n🔄 Attempting to swap ${swapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name}...`);
-        
-        const exactAmountIn = toBaseUnits(swapAmount, sourceToken.decimals);
-        const minAmountOut = toBaseUnits(
-            swapAmount * (1 - CONFIG.TRADING.SLIPPAGE_TOLERANCE), 
-            targetToken.decimals
-        );
-        
-        const { call: swapCall } = await swapExactIn({
-            pool: poolAddress,
-            in: sourceToken.mint,
-            out: targetToken.mint,
-            exactAmountIn: Number(exactAmountIn),
-            minAmountOut: Number(minAmountOut),
-            cuLimit: CONFIG.TRADING.CU_LIMIT,
-        });
-        
-        const signature = await swapCall.rpc();
-        console.log(`✅ Swap successful! Signature: ${signature}`);
-        
-        // Send Discord notification for successful swap
-        await sendDiscordNotification(
-            `✅ Swap successful! ${swapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name} | Signature: ${signature}`,
-            walletIndex
-        );
-        
-        return true;
-        
-    } catch (error) {
-        console.error(`❌ Swap failed:`, error.message || error);
-        
-        // Send Discord notification for failed swap
-        await sendDiscordNotification(
-            `❌ Swap failed: ${swapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name} - ${error.message || 'Unknown error'}`,
-            walletIndex
-        );
-        
-        return false;
+    let currentSwapAmount = swapAmount;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount <= maxRetries) {
+        try {
+            console.log(`\n🔄 Attempting to swap ${currentSwapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name}...`);
+            
+            const exactAmountIn = toBaseUnits(currentSwapAmount, sourceToken.decimals);
+            const minAmountOut = toBaseUnits(
+                currentSwapAmount * (1 - CONFIG.TRADING.SLIPPAGE_TOLERANCE), 
+                targetToken.decimals
+            );
+            
+            const { call: swapCall } = await swapExactIn({
+                pool: poolAddress,
+                in: sourceToken.mint,
+                out: targetToken.mint,
+                exactAmountIn: Number(exactAmountIn),
+                minAmountOut: Number(minAmountOut),
+                cuLimit: CONFIG.TRADING.CU_LIMIT,
+            });
+            
+            const signature = await swapCall.rpc();
+            console.log(`✅ Swap successful! Signature: ${signature}`);
+            
+            // Send Discord notification for successful swap
+            await sendDiscordNotification(
+                `✅ Swap successful! ${currentSwapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name} | Signature: ${signature}`,
+                walletIndex
+            );
+            
+            return true;
+            
+        } catch (error) {
+            const errorMessage = error.message || error.toString();
+            
+            // Check for InsufficientBalance error (Error Code: 6015)
+            if (errorMessage.includes('InsufficientBalance') || errorMessage.includes('Error Code: 6015') || errorMessage.includes('Input is more than trader balance')) {
+                retryCount++;
+                
+                if (retryCount <= maxRetries) {
+                    // Reduce swap amount to 75% of current amount
+                    currentSwapAmount = currentSwapAmount * 0.75;
+                    console.log(`⚠️ InsufficientBalance detected. Reducing swap amount to ${currentSwapAmount.toFixed(6)} ${sourceToken.name} (75% of previous amount). Retry ${retryCount}/${maxRetries}`);
+                    
+                    // Send Discord notification for retry attempt
+                    await sendDiscordNotification(
+                        `⚠️ InsufficientBalance detected. Reducing swap amount to ${currentSwapAmount.toFixed(6)} ${sourceToken.name} (75% of previous). Retry ${retryCount}/${maxRetries}`,
+                        walletIndex
+                    );
+                    
+                    // Wait a moment before retry
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    continue;
+                } else {
+                    console.error(`❌ Max retries reached. Final swap amount attempted: ${currentSwapAmount.toFixed(6)} ${sourceToken.name}`);
+                }
+            }
+            
+            console.error(`❌ Swap failed:`, errorMessage);
+            
+            // Send Discord notification for failed swap
+            await sendDiscordNotification(
+                `❌ Swap failed: ${currentSwapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name} - ${errorMessage}`,
+                walletIndex
+            );
+            
+            return false;
+        }
     }
+    
+    return false;
 }
 
 /**
