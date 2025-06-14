@@ -34,8 +34,8 @@
   },
   "homepage": "https://github.com/SolanaLeeky/perena-trading-bot#readme",
   "engines": {
-    "node": ">=16.0.0",
-    "npm": ">=8.0.0"
+    "node": ">=20.18.0",
+    "npm": ">=10.0.0"
   },
   "dependencies": {
     "@perena/numeraire-sdk": "^1.1.1",
@@ -48,6 +48,15 @@
   "overrides": {
     "@perena/numeraire-sdk": {
       "node-fetch": "^2.7.0"
+    },
+    "bigint-buffer": "1.1.5",
+    "@solana/buffer-layout-utils": {
+      "bigint-buffer": "1.1.5"
+    },
+    "@solana/spl-token": {
+      "@solana/buffer-layout-utils": {
+        "bigint-buffer": "1.1.5"
+      }
     }
   }
 }
