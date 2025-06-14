@@ -1,0 +1,53 @@
+{
+  "name": "perena-trading-bot",
+  "version": "1.0.0",
+  "main": "app.js",
+  "type": "module",
+  "description": "Automated trading bot for Perena protocol on Solana with smart balance management and rewards optimization",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --inspect app.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "echo \"No linter configured\"",
+    "check-deps": "npm outdated"
+  },
+  "keywords": [
+    "solana",
+    "trading-bot",
+    "perena",
+    "defi",
+    "automated-trading",
+    "cryptocurrency",
+    "blockchain",
+    "swap",
+    "rewards",
+    "balance-management"
+  ],
+  "author": "SolanaLeeky",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SolanaLeeky/perena-trading-bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SolanaLeeky/perena-trading-bot/issues"
+  },
+  "homepage": "https://github.com/SolanaLeeky/perena-trading-bot#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "dependencies": {
+    "@perena/numeraire-sdk": "^1.1.1",
+    "@solana/web3.js": "^1.98.2",
+    "axios": "^1.6.0",
+    "bs58": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "node-fetch": "^2.7.0"
+  },
+  "overrides": {
+    "@perena/numeraire-sdk": {
+      "node-fetch": "^2.7.0"
+    }
+  }
+}

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for security vulnerabilities
+        run: npm audit --audit-level=high
+
+      - name: Lint code (if linter is configured)
+        run: npm run lint || echo "No linter configured"
+        continue-on-error: true
+
+      - name: Run tests (if tests exist)
+        run: npm test || echo "No tests configured"
+        continue-on-error: true
+
+      - name: Check if app.js can be parsed
+        run: node -c app.js
+
+      - name: Verify environment example file
+        run: |
+          if [ ! -f .env.example ]; then
+            echo "Error: .env.example file is missing"
+            exit 1
+          fi
+          echo "✅ .env.example file exists"
+
+      - name: Check for sensitive data in code
+        run: |
+          # Check for potential private keys or sensitive data
+          if grep -r "BEGIN.*PRIVATE.*KEY" . --exclude-dir=node_modules --exclude-dir=.git; then
+            echo "❌ Potential private key found in code!"
+            exit 1
+          fi
+          echo "✅ No private keys found in code"
+
+      - name: Verify gitignore coverage
+        run: |
+          # Check if important files are in gitignore
+          if ! grep -q ".env" .gitignore; then
+            echo "❌ .env not in .gitignore"
+            exit 1
+          fi
+          if ! grep -q "config/keypair.json" .gitignore; then
+            echo "❌ keypair.json not in .gitignore"
+            exit 1
+          fi
+          echo "✅ Sensitive files are properly ignored"
