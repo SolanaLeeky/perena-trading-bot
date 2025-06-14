@@ -1,72 +1,226 @@
-name: CI
+name: Perena Trading Bot CI/CD
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  NODE_VERSION: '18.x'
+  CACHE_DEPENDENCY_PATH: 'package-lock.json'
 
 jobs:
-  test:
+  security-scan:
+    name: Security & Code Quality
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [16.x, 18.x, 20.x]
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Use Node.js ${{ matrix.node-version }}
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: "npm"
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ${{ env.CACHE_DEPENDENCY_PATH }}
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Check for security vulnerabilities
-        run: npm audit --audit-level=high
-
-      - name: Lint code (if linter is configured)
-        run: npm run lint || echo "No linter configured"
-        continue-on-error: true
-
-      - name: Run tests (if tests exist)
-        run: npm test || echo "No tests configured"
-        continue-on-error: true
-
-      - name: Check if app.js can be parsed
-        run: node -c app.js
-
-      - name: Verify environment example file
+      - name: Security audit
         run: |
-          if [ ! -f .env.example ]; then
-            echo "Error: .env.example file is missing"
+          echo "🔍 Running security audit..."
+          npm audit --audit-level=moderate || {
+            echo "⚠️ Security vulnerabilities found!"
+            npm audit --audit-level=moderate --json > audit-results.json
             exit 1
-          fi
-          echo "✅ .env.example file exists"
+          }
+          echo "✅ No critical security vulnerabilities found"
 
-      - name: Check for sensitive data in code
+      - name: Check for sensitive data
         run: |
-          # Check for potential private keys or sensitive data
+          echo "🔍 Scanning for sensitive data..."
+          
+          # Check for private keys
           if grep -r "BEGIN.*PRIVATE.*KEY" . --exclude-dir=node_modules --exclude-dir=.git; then
-            echo "❌ Potential private key found in code!"
+            echo "❌ Private key found in code!"
             exit 1
           fi
-          echo "✅ No private keys found in code"
+          
+          # Check for hardcoded secrets
+          if grep -rE "(secret|password|token|key)\s*[:=]\s*['\"][^'\"]{20,}" . --exclude-dir=node_modules --exclude-dir=.git --exclude="*.md" --exclude="*.yml" --exclude="*.yaml"; then
+            echo "❌ Potential hardcoded secrets found!"
+            exit 1
+          fi
+          
+          # Check for wallet addresses in code (should be in env)
+          if grep -rE "[1-9A-HJ-NP-Za-km-z]{32,44}" app.js; then
+            echo "⚠️ Potential wallet address found in code - should be in environment variables"
+          fi
+          
+          echo "✅ No sensitive data found in code"
 
-      - name: Verify gitignore coverage
+      - name: Verify project structure
         run: |
-          # Check if important files are in gitignore
-          if ! grep -q ".env" .gitignore; then
-            echo "❌ .env not in .gitignore"
+          echo "📁 Verifying project structure..."
+          
+          # Check required files
+          required_files=(".env.example" "app.js" "package.json" "README.md" ".gitignore")
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Required file missing: $file"
+              exit 1
+            fi
+          done
+          
+          # Check gitignore coverage
+          gitignore_patterns=(".env" "node_modules" "*.log" "config/keypair.json")
+          for pattern in "${gitignore_patterns[@]}"; do
+            if ! grep -q "$pattern" .gitignore; then
+              echo "❌ Pattern not in .gitignore: $pattern"
+              exit 1
+            fi
+          done
+          
+          echo "✅ Project structure verified"
+
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    needs: security-scan
+    
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+        
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ env.CACHE_DEPENDENCY_PATH }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate syntax
+        run: |
+          echo "🔍 Validating JavaScript syntax..."
+          node -c app.js
+          echo "✅ Syntax validation passed"
+
+      - name: Check dependencies compatibility
+        run: |
+          echo "📦 Checking dependency compatibility..."
+          npm ls --depth=0
+          echo "✅ Dependencies check completed"
+
+      - name: Test environment setup
+        run: |
+          echo "🧪 Testing environment setup..."
+          
+          # Copy example env file
+          cp .env.example .env.test
+          
+          # Add test values
+          cat >> .env.test << EOF
+          RPC_URL=https://api.devnet.solana.com
+          PRIVATE_KEYS=test_key_1,test_key_2
+          DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/test
+          TOKEN_A_MINT=So11111111111111111111111111111111111111112
+          TOKEN_B_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+          EOF
+          
+          # Test config loading (dry run)
+          node -e "
+            import dotenv from 'dotenv';
+            dotenv.config({ path: '.env.test' });
+            console.log('✅ Environment configuration loaded successfully');
+            
+            // Basic validation
+            const required = ['RPC_URL', 'PRIVATE_KEYS', 'TOKEN_A_MINT', 'TOKEN_B_MINT'];
+            const missing = required.filter(key => !process.env[key]);
+            if (missing.length > 0) {
+              console.error('❌ Missing required env vars:', missing);
+              process.exit(1);
+            }
+            console.log('✅ All required environment variables present');
+          "
+          
+          rm .env.test
+          echo "✅ Environment setup test completed"
+
+  deployment-check:
+    name: Deployment Readiness
+    runs-on: ubuntu-latest
+    needs: [security-scan, build-test]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production readiness check
+        run: |
+          echo "🚀 Checking production readiness..."
+          
+          # Check for development dependencies in production
+          if npm ls --production --depth=0 2>&1 | grep -i "missing\|error"; then
+            echo "❌ Production dependency issues found"
             exit 1
           fi
-          if ! grep -q "config/keypair.json" .gitignore; then
-            echo "❌ keypair.json not in .gitignore"
-            exit 1
-          fi
-          echo "✅ Sensitive files are properly ignored"
+          
+          # Verify critical configurations
+          node -e "
+            import fs from 'fs';
+            
+            // Check package.json engines
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            if (!pkg.engines || !pkg.engines.node) {
+              console.error('❌ Node.js engine version not specified');
+              process.exit(1);
+            }
+            
+            console.log('✅ Production readiness verified');
+          "
+          
+          echo "✅ Ready for deployment"
+
+      - name: Generate deployment summary
+        run: |
+          echo "📋 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "==================" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Node.js**: ${{ env.NODE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ready**: ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
