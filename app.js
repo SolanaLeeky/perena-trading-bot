@@ -479,25 +479,22 @@ async function main() {
             `🚀 Bot Started - Loaded ${wallets.length} wallet(s) for trading`
         );
         
-        // Run trading for all wallets sequentially to avoid SDK global state conflicts
-        console.log(`\n🔄 Starting sequential trading for all wallets...`);
+        // Run trading for all wallets concurrently (SDK re-initialization handles conflicts)
+        const tradingPromises = wallets.map((wallet, index) => 
+            runWalletTrading(wallet, connection, index + 1)
+                .catch(error => {
+                    console.error(`❌ Wallet ${index + 1} failed:`, error.message);
+                    // Send Discord notification for wallet failure
+                    sendDiscordNotification(
+                        `❌ Wallet ${index + 1} trading failed: ${error.message}`,
+                        index + 1
+                    );
+                    return null; // Continue with other wallets
+                })
+        );
         
-        for (let i = 0; i < wallets.length; i++) {
-            try {
-                console.log(`\n📍 Processing Wallet ${i + 1} of ${wallets.length}...`);
-                await runWalletTrading(wallets[i], connection, i + 1);
-                console.log(`✅ Wallet ${i + 1} trading completed successfully`);
-            } catch (error) {
-                console.error(`❌ Wallet ${i + 1} failed:`, error.message);
-                // Send Discord notification for wallet failure
-                await sendDiscordNotification(
-                    `❌ Wallet ${i + 1} trading failed: ${error.message}`,
-                    i + 1
-                );
-                // Continue with next wallet
-                console.log(`🔄 Continuing with next wallet...`);
-            }
-        }
+        console.log(`\n🔄 Starting concurrent trading for all wallets...`);
+        await Promise.allSettled(tradingPromises);
         
         console.log(`\n✅ All wallet trading sessions completed`);
         
