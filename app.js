@@ -44,7 +44,7 @@ const CONFIG = {
     TRADING: {
         MAX_ROUNDS: Number.MAX_SAFE_INTEGER,
         MIN_BALANCE_THRESHOLD: 1,
-        SWAP_PERCENTAGE: 0.85, // Reduced from 0.99 to 0.85 (85%) to leave adequate buffer for fees
+        SWAP_PERCENTAGE: 0.75, // Reduced to 75% to leave adequate buffer for fees, slippage, and real-time balance changes
         SLIPPAGE_TOLERANCE: 0.15,
         CU_LIMIT: 1200000,
         ROUND_DELAY_MS: 18000000, // 5 hours
@@ -599,9 +599,33 @@ async function executeSwap(connection, payer, poolAddress, sourceToken, targetTo
     try {
         console.log(`\n🔄 Attempting to swap ${swapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name}...`);
         
-        const exactAmountIn = toBaseUnits(swapAmount, sourceToken.decimals);
+        // Fetch fresh balance data before swap to ensure accuracy
+        console.log(`📊 Fetching fresh balance data before swap...`);
+        const freshBalances = await getAllTokenBalances(connection, payer.publicKey);
+        const currentSourceBalance = freshBalances[sourceToken.name];
+        
+        if (currentSourceBalance.error) {
+            throw new Error(`Failed to fetch current ${sourceToken.name} balance: ${currentSourceBalance.error}`);
+        }
+        
+        const actualBalance = currentSourceBalance.readableBalance;
+        console.log(`💰 Fresh ${sourceToken.name} balance: ${actualBalance.toFixed(6)}`);
+        
+        // Validate swap amount against fresh balance with safety buffer
+        const maxSafeAmount = actualBalance * 0.95; // 95% of actual balance for extra safety
+        const finalSwapAmount = Math.min(swapAmount, maxSafeAmount);
+        
+        if (finalSwapAmount <= 0) {
+            throw new Error(`Insufficient balance: requested ${swapAmount.toFixed(6)}, available ${actualBalance.toFixed(6)}`);
+        }
+        
+        if (finalSwapAmount < swapAmount) {
+            console.log(`⚠️ Adjusted swap amount from ${swapAmount.toFixed(6)} to ${finalSwapAmount.toFixed(6)} based on fresh balance`);
+        }
+        
+        const exactAmountIn = toBaseUnits(finalSwapAmount, sourceToken.decimals);
         const minAmountOut = toBaseUnits(
-            swapAmount * (1 - CONFIG.TRADING.SLIPPAGE_TOLERANCE), 
+            finalSwapAmount * (1 - CONFIG.TRADING.SLIPPAGE_TOLERANCE), 
             targetToken.decimals
         );
         
@@ -619,7 +643,7 @@ async function executeSwap(connection, payer, poolAddress, sourceToken, targetTo
         
         // Send Discord notification for successful swap
         await sendDiscordNotification(
-            `✅ Swap successful! ${swapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name} | Signature: ${signature}`,
+            `✅ Swap successful! ${finalSwapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name} | Signature: ${signature}`,
             walletIndex
         );
         
@@ -631,7 +655,7 @@ async function executeSwap(connection, payer, poolAddress, sourceToken, targetTo
         
         // Send Discord notification for failed swap
         await sendDiscordNotification(
-            `❌ Swap failed: ${swapAmount.toFixed(6)} ${sourceToken.name} → ${targetToken.name} - ${errorMessage}`,
+            `❌ Swap failed: ${sourceToken.name} → ${targetToken.name} - ${errorMessage}`,
             walletIndex
         );
         
